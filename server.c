@@ -1,0 +1,151 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include "pro.h"
+
+
+
+#define err_log(log)\
+	  do{\
+	  	perror(log);\
+		exit(1);\
+	  }while(0)  //出错处理的宏函数
+typedef struct sockaddr SA;
+//./server    192.168.1.104 8888
+
+
+
+int main(int argc, const char *argv[])
+{
+	
+		int serverfd,clientfd;
+		ssize_t bytes;
+		int beepfd;
+		int motorfd;
+
+		char buf[32]={0};
+		char ser_w_buf[32] = {0};
+		struct sockaddr_in serveraddr,clientaddr;
+		socklen_t len=sizeof(serveraddr);
+		bzero(&serveraddr,len);//清零
+		
+		
+	beepfd = open("/dev/input/event0",O_WRONLY);
+	motorfd = open("/dev/input/event1",O_WRONLY);			
+
+		if(argc<3)
+		{
+			fprintf(stderr,"USER:%s IP PORT",argv[0]);
+			return -1;
+		}
+		if((serverfd=socket(AF_INET,SOCK_STREAM,0))<0)//创建流式套接字
+		{
+			err_log("fail to socketi:");
+		}
+		//填充本地的网络信息
+		serveraddr.sin_family=AF_INET;//地址族
+		serveraddr.sin_port=htons(atoi(argv[2]));//填充端口号
+		serveraddr.sin_addr.s_addr=inet_addr(argv[1]);//ip地址
+
+
+		if(bind(serverfd,(SA*)&serveraddr,len)<0)//绑定网络信息
+		{
+			err_log("fail to bind:");
+		}	
+
+		if(listen(serverfd,10)<0)//监听套接字
+		{
+			err_log("fail to listen:");
+		}
+		while(1)
+		{
+			if((clientfd=accept(serverfd,(SA*)&clientaddr,&len))<0)//链接客户端请求
+			{
+				err_log("fail to accept:");
+			}
+
+			printf("%s-------%u\n",inet_ntoa(clientaddr.sin_addr),ntohs(clientaddr.sin_port));//打印客户端的网络信息
+			while(1)
+			{
+
+
+				float tv; //温度的值
+				float hv; // 湿度的值 
+				float iv;//光强
+				char buf[100] = {0};
+				tv = gettemp();
+				
+				hv = gethum();
+				iv = getillum();
+				
+				if(tv>26)
+					{
+						fanwork(100);
+						motoron(motorfd,0);
+					}
+				else if(tv < 22)
+					{
+						motoron(motorfd,2000);
+						fanwork(0);
+					}
+				else
+					{
+						fanwork(0);
+						motoron(motorfd,0);
+					}
+				
+				if(hv < 40)
+					{
+						ledfunc(1,1);
+						ledfunc(2,0);
+					}
+				else if(hv > 55)
+					{
+						ledfunc(2,1);
+						ledfunc(1,0);
+
+					}
+				else
+					{
+						ledfunc(1,0);
+						ledfunc(2,0);
+
+					}
+					
+				if(iv < 20)
+					{
+						ledfunc(3,1);
+						beepplay(beepfd,0);
+						
+					}
+				else if(iv > 100)
+					{
+						beepplay(beepfd,1000);
+						ledfunc(3,0);
+					}
+				else
+					{
+						ledfunc(3,0);
+						beepplay(beepfd,0);
+					}
+				sprintf(buf,"t= %5.2f, h= %5.2f, i= %6.2f\n",tv,hv,iv);
+				write(clientfd,buf,strlen(buf));
+				sleep(1);
+			}
+
+			close(clientfd);//关闭套接字
+		}
+		close(serverfd);
+
+
+
+	return 0;
+}
